@@ -1,0 +1,29 @@
+{
+    "name": "cipheracademy/dicecipher",
+    "description": "A PHP library for generating and working with DiceCipher sequences",
+    "type": "library",
+    "license": "GPL-3.0-or-later",
+    "autoload": {
+        "psr-4": {
+            "DiceCipher\\": "src/"
+        }
+    },
+    "authors": [
+        {
+            "name": "Árpád Lehel Mátyus",
+            "email": "contact@dicecipher.com"
+        }
+    ],
+    "require": {
+        "php": ">=7.4"
+    },
+    "bin": [
+        "bin/dicecipher"
+    ],
+    "scripts": {
+        "test": "phpunit --bootstrap vendor/autoload.php tests"
+    },
+    "require-dev": {
+        "phpunit/phpunit": "^9.5"
+    }
+}
