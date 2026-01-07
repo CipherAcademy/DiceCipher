@@ -1,0 +1,189 @@
+#!/usr/bin/env php
+<?php
+
+require __DIR__ . '/../vendor/autoload.php';
+
+use DiceCipher\DiceRollCounter;
+
+/**
+ * Convert a number to base 36 (0-9, A-Z)
+ * Always returns at least 3 characters, padded with leading zeros
+ */
+function toBase36(int $number, int $minLength = 3): string {
+    if ($number < 0) {
+        throw new InvalidArgumentException("Number must be non-negative");
+    }
+
+    if ($number === 0) {
+        return str_pad('0', $minLength, '0', STR_PAD_LEFT);
+    }
+
+    $result = '';
+    $base = 36;
+
+    while ($number > 0) {
+        $remainder = $number % $base;
+        if ($remainder < 10) {
+            $result = $remainder . $result;
+        } else {
+            // Convert 10-35 to A-Z
+            $result = chr(ord('A') + ($remainder - 10)) . $result;
+        }
+        $number = intval($number / $base);
+    }
+
+    return str_pad($result, $minLength, '0', STR_PAD_LEFT);
+}
+
+// Define CLI usage
+if ($argc < 3) {
+    echo "Usage: origin-matrix-generator <sequences_file> <alphabet_sequences_file>\n";
+    echo "  sequences_file: Path to the number sequences file\n";
+    echo "  alphabet_sequences_file: Path to the alphabet sequences file\n";
+    echo "\nThis will create output/origin-matrix.txt with 7776 merged lines.\n";
+    exit(1);
+}
+
+$sequencesFile = $argv[1];
+$alphabetSequencesFile = $argv[2];
+
+// Ensure output directory exists
+$outputDir = __DIR__ . '/../output';
+if (!is_dir($outputDir)) {
+    mkdir($outputDir, 0755, true);
+}
+
+$outputFile = $outputDir . '/origin-matrix.txt';
+
+const REQUIRED_LINES = 7776;
+
+// Check if files exist
+if (!file_exists($sequencesFile)) {
+    echo "Error: Sequences file not found: $sequencesFile\n";
+    exit(1);
+}
+
+if (!file_exists($alphabetSequencesFile)) {
+    echo "Error: Alphabet sequences file not found: $alphabetSequencesFile\n";
+    exit(1);
+}
+
+echo "Reading sequences from: $sequencesFile\n";
+echo "Reading alphabet sequences from: $alphabetSequencesFile\n";
+
+// Read wordlist
+$wordlistFile = __DIR__ . '/../resources/wordlist.txt';
+$wordlist = [];
+if (file_exists($wordlistFile)) {
+    $handle = fopen($wordlistFile, 'r');
+    if ($handle !== false) {
+        while (($line = fgets($handle)) !== false) {
+            $line = trim($line);
+            if (!empty($line)) {
+                $parts = preg_split('/\s+/', $line, 2); // Split on whitespace (tab or space)
+                if (count($parts) === 2) {
+                    $diceKey = $parts[0]; // e.g., "11111"
+                    $word = $parts[1];    // e.g., "abacus"
+                    $wordlist[$diceKey] = $word;
+                }
+            }
+        }
+        fclose($handle);
+        echo "Loaded " . count($wordlist) . " words from wordlist.\n";
+    }
+} else {
+    echo "Warning: Wordlist file not found at: $wordlistFile\n";
+    echo "Continuing without words...\n";
+}
+
+echo "Generating $outputFile with " . REQUIRED_LINES . " lines...\n";
+
+// Read sequences file
+$sequences = [];
+$handle = fopen($sequencesFile, 'r');
+if ($handle === false) {
+    echo "Error: Could not open sequences file.\n";
+    exit(1);
+}
+
+$lineCount = 0;
+while (($line = fgets($handle)) !== false && $lineCount < REQUIRED_LINES) {
+    $line = trim($line);
+    if (!empty($line)) {
+        $sequences[] = $line;
+        $lineCount++;
+    }
+}
+fclose($handle);
+
+if (count($sequences) < REQUIRED_LINES) {
+    echo "Error: Sequences file does not have enough lines. Required: " . REQUIRED_LINES . ", Found: " . count($sequences) . "\n";
+    exit(1);
+}
+
+// Read alphabet sequences file
+$alphabetSequences = [];
+$handle = fopen($alphabetSequencesFile, 'r');
+if ($handle === false) {
+    echo "Error: Could not open alphabet sequences file.\n";
+    exit(1);
+}
+
+$lineCount = 0;
+while (($line = fgets($handle)) !== false && $lineCount < REQUIRED_LINES) {
+    $line = trim($line);
+    if (!empty($line)) {
+        $alphabetSequences[] = $line;
+        $lineCount++;
+    }
+}
+fclose($handle);
+
+if (count($alphabetSequences) < REQUIRED_LINES) {
+    echo "Error: Alphabet sequences file does not have enough lines. Required: " . REQUIRED_LINES . ", Found: " . count($alphabetSequences) . "\n";
+    exit(1);
+}
+
+// Initialize dice roll counter
+$diceCounter = new DiceRollCounter();
+
+// Open output file
+$outputHandle = fopen($outputFile, 'w');
+if ($outputHandle === false) {
+    echo "Error: Could not create output file: $outputFile\n";
+    exit(1);
+}
+
+// Generate merged lines
+$base36Counter = 0; // Start from 0 (which is 000 in base 36)
+
+for ($i = 0; $i < REQUIRED_LINES; $i++) {
+    $diceRoll = $diceCounter->getCurrent(); // e.g., "1,1,1,1,1"
+    $base36 = toBase36($base36Counter);
+    $sequenceLine = $sequences[$i];
+    $alphabetLine = $alphabetSequences[$i];
+
+    // Convert comma-separated dice roll to non-comma format for wordlist lookup
+    // e.g., "1,1,1,1,1" -> "11111"
+    $diceKey = str_replace(',', '', $diceRoll);
+    
+    // Look up word in wordlist
+    $word = $wordlist[$diceKey] ?? '';
+    
+    // Format: diceRoll - word - base36 - sequenceLine - alphabetLine
+    // If word is empty, still include the dashes: diceRoll - - base36 - ...
+    $mergedLine = "$diceRoll - $word - $base36 - $sequenceLine - $alphabetLine" . PHP_EOL;
+    
+    fwrite($outputHandle, $mergedLine);
+
+    // Advance counters
+    $diceCounter->next();
+    $base36Counter++;
+}
+
+fclose($outputHandle);
+
+echo "Successfully generated $outputFile with " . REQUIRED_LINES . " merged lines.\n";
+echo "Dice rolls: 1,1,1,1,1 to " . $diceCounter->getCurrent() . "\n";
+echo "Base 36 count: 000 to " . toBase36(REQUIRED_LINES - 1) . "\n";
+

@@ -16,7 +16,6 @@ class RandomSequenceGenerator
 
     /**
      * Generate a single random permutation of 01–40 as a comma-separated string
-     * Uses Fisher-Yates shuffle with cryptographically secure random_int()
      */
     public function generate(): string
     {

@@ -13,13 +13,21 @@ class UniqueSequenceGenerator {
     }
 
     public function generateAndStore(int $numSequences): void {
+        // Clear the file if it exists
+        if (file_exists($this->outputFile)) {
+            file_put_contents($this->outputFile, '');
+        }
+
         while (count($this->uniqueSequences) < $numSequences) {
-            $sequence = $this->generator->generate();
-            $normalized = SequenceNormalizer::normalize($sequence);
+            $sequence = $this->generator->generate(); // Returns string
+            // Convert string to array for normalization
+            $sequenceArray = explode(',', $sequence);
+            $normalized = SequenceNormalizer::normalize($sequenceArray);
 
             if (!isset($this->uniqueSequences[$normalized])) {
                 $this->uniqueSequences[$normalized] = true;
-                file_put_contents($this->outputFile, implode(",", $sequence) . PHP_EOL, FILE_APPEND);
+                // Write the string directly to file
+                file_put_contents($this->outputFile, $sequence . PHP_EOL, FILE_APPEND);
             }
         }
 

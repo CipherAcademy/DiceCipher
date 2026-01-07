@@ -1,0 +1,337 @@
+#!/usr/bin/env php
+<?php
+
+/**
+ * Position Bias Analyzer for DiceCipher Sequences
+ * 
+ * Analyzes if a specific number (01-40) or all numbers show bias toward certain positions
+ * in sequences and generates a histogram report.
+ */
+
+if ($argc < 3) {
+    echo "Usage: analyze-bias <input_file> <number|all>\n";
+    echo "  input_file: Path to the sequences file\n";
+    echo "  number: Number to analyze (01-40) or 'all' to analyze all numbers\n";
+    echo "\nExample: analyze-bias sequences-12-17.txt 01\n";
+    echo "         analyze-bias sequences-12-17.txt all\n";
+    exit(1);
+}
+
+$inputFile = $argv[1];
+$analyzeAll = strtolower($argv[2]) === 'all';
+
+if (!file_exists($inputFile)) {
+    echo "Error: File '$inputFile' not found.\n";
+    exit(1);
+}
+
+if (!$analyzeAll) {
+    $targetNumber = str_pad($argv[2], 2, "0", STR_PAD_LEFT);
+    if (!preg_match('/^0?[1-9]|[12][0-9]|3[0-9]|40$/', $argv[2])) {
+        echo "Error: Number must be between 01 and 40, or use 'all'.\n";
+        exit(1);
+    }
+}
+
+// Generate output filename
+$pathInfo = pathinfo($inputFile);
+$outputFile = $pathInfo['dirname'] . '/' . $pathInfo['filename'] . '--bias-report-histogram.txt';
+
+if ($analyzeAll) {
+    echo "Analyzing position bias for ALL numbers (01-40) in '$inputFile'...\n";
+} else {
+    echo "Analyzing position bias for number '$targetNumber' in '$inputFile'...\n";
+}
+
+// Read and parse sequences
+$sequences = [];
+$handle = fopen($inputFile, 'r');
+if ($handle === false) {
+    echo "Error: Could not open file '$inputFile'.\n";
+    exit(1);
+}
+
+$lineCount = 0;
+while (($line = fgets($handle)) !== false) {
+    $line = trim($line);
+    if (empty($line)) continue;
+    
+    $numbers = explode(',', $line);
+    if (count($numbers) === 40) {
+        $sequences[] = $numbers;
+        $lineCount++;
+    }
+}
+fclose($handle);
+
+if ($lineCount === 0) {
+    echo "Error: No valid sequences found in file.\n";
+    exit(1);
+}
+
+echo "Found $lineCount sequences.\n";
+
+/**
+ * Analyze position bias for a single number
+ */
+function analyzeNumber($number, $sequences, $lineCount) {
+    $positionCounts = array_fill(1, 40, 0);
+    $totalOccurrences = 0;
+
+    foreach ($sequences as $sequence) {
+        foreach ($sequence as $position => $seqNumber) {
+            $actualPosition = $position + 1; // Convert 0-based to 1-based
+            if ($seqNumber === $number) {
+                $positionCounts[$actualPosition]++;
+                $totalOccurrences++;
+            }
+        }
+    }
+
+    if ($totalOccurrences === 0) {
+        return null;
+    }
+
+    // Calculate expected frequency (uniform distribution)
+    $expectedFrequency = $totalOccurrences / 40;
+    $maxCount = max($positionCounts);
+    $minCount = min($positionCounts);
+
+    // Calculate standard deviation
+    $variance = 0;
+    foreach ($positionCounts as $count) {
+        $variance += pow($count - $expectedFrequency, 2);
+    }
+    $stdDev = sqrt($variance / 40);
+
+    // Chi-square test
+    $chiSquare = 0;
+    foreach ($positionCounts as $count) {
+        if ($expectedFrequency > 0) {
+            $chiSquare += pow($count - $expectedFrequency, 2) / $expectedFrequency;
+        }
+    }
+
+    // Find bias positions
+    $positionsWithHighBias = [];
+    $positionsWithLowBias = [];
+    foreach ($positionCounts as $position => $count) {
+        if ($count > $expectedFrequency * 1.2) {
+            $positionsWithHighBias[] = $position;
+        } elseif ($count < $expectedFrequency * 0.8) {
+            $positionsWithLowBias[] = $position;
+        }
+    }
+
+    // Most and least frequent positions
+    $maxPositions = [];
+    $minPositions = [];
+    foreach ($positionCounts as $position => $count) {
+        if ($count === $maxCount) {
+            $maxPositions[] = $position;
+        }
+        if ($count === $minCount) {
+            $minPositions[] = $position;
+        }
+    }
+
+    return [
+        'number' => $number,
+        'positionCounts' => $positionCounts,
+        'totalOccurrences' => $totalOccurrences,
+        'expectedFrequency' => $expectedFrequency,
+        'stdDev' => $stdDev,
+        'maxCount' => $maxCount,
+        'minCount' => $minCount,
+        'chiSquare' => $chiSquare,
+        'positionsWithHighBias' => $positionsWithHighBias,
+        'positionsWithLowBias' => $positionsWithLowBias,
+        'maxPositions' => $maxPositions,
+        'minPositions' => $minPositions
+    ];
+}
+
+/**
+ * Generate histogram section for a number analysis
+ */
+function generateHistogramSection($analysis, $histogramWidth = 60) {
+    $result = [];
+    $positionCounts = $analysis['positionCounts'];
+    $expectedFrequency = $analysis['expectedFrequency'];
+    $maxCount = $analysis['maxCount'];
+    
+    $result[] = "NUMBER: " . $analysis['number'];
+    $result[] = str_repeat("-", 78);
+    $result[] = sprintf("Total Occurrences: %d | Expected per position: %.2f | Std Dev: %.2f | Chi-square: %.2f",
+        $analysis['totalOccurrences'], $expectedFrequency, $analysis['stdDev'], $analysis['chiSquare']);
+    $result[] = "";
+    
+    // Determine scale for histogram
+    $scale = $maxCount > 0 ? $histogramWidth / $maxCount : 1;
+    
+    // Header
+    $result[] = sprintf("%-6s | %-8s | %-8s | %-10s | %-8s | %s", 
+        "Pos", "Actual", "Expected", "Deviation", "% Dev", "Histogram");
+    $result[] = str_repeat("-", 78);
+    
+    // Generate histogram for each position
+    foreach ($positionCounts as $position => $count) {
+        $deviation = $count - $expectedFrequency;
+        $percentDev = $expectedFrequency > 0 ? ($deviation / $expectedFrequency) * 100 : 0;
+        
+        // Create histogram bar
+        $barLength = (int)($count * $scale);
+        $bar = str_repeat("█", $barLength);
+        
+        // Highlight significant deviations
+        $highlight = "";
+        if ($count > $expectedFrequency * 1.2) {
+            $highlight = " [HIGH BIAS]";
+        } elseif ($count < $expectedFrequency * 0.8) {
+            $highlight = " [LOW BIAS]";
+        }
+        
+        $result[] = sprintf("%-6d | %-8d | %-8.2f | %-10.2f | %-7.1f%% | %s%s",
+            $position, $count, $expectedFrequency, $deviation, $percentDev, $bar, $highlight);
+    }
+    
+    $result[] = str_repeat("-", 78);
+    $result[] = "";
+    
+    // Summary for this number
+    $result[] = "  Most frequent position(s): " . implode(", ", $analysis['maxPositions']) . 
+        " ($maxCount times)";
+    $result[] = "  Least frequent position(s): " . implode(", ", $analysis['minPositions']) . 
+        " (" . $analysis['minCount'] . " times)";
+    if (!empty($analysis['positionsWithHighBias'])) {
+        $result[] = "  HIGH bias positions: " . implode(", ", $analysis['positionsWithHighBias']);
+    }
+    if (!empty($analysis['positionsWithLowBias'])) {
+        $result[] = "  LOW bias positions: " . implode(", ", $analysis['positionsWithLowBias']);
+    }
+    $result[] = "";
+    $result[] = "";
+    
+    return $result;
+}
+
+// Generate report
+$report = [];
+$report[] = "=" . str_repeat("=", 78);
+$report[] = "POSITION BIAS ANALYSIS REPORT";
+$report[] = "=" . str_repeat("=", 78);
+$report[] = "";
+$report[] = "Input File: $inputFile";
+if ($analyzeAll) {
+    $report[] = "Analysis: ALL NUMBERS (01-40)";
+} else {
+    $report[] = "Analysis: SINGLE NUMBER ($targetNumber)";
+}
+$report[] = "Total Sequences Analyzed: $lineCount";
+$report[] = "";
+$report[] = str_repeat("=", 78);
+$report[] = "";
+
+if ($analyzeAll) {
+    // Analyze all numbers
+    $allAnalyses = [];
+    $numbersToAnalyze = array_map(function($n) {
+        return str_pad($n, 2, "0", STR_PAD_LEFT);
+    }, range(1, 40));
+    
+    foreach ($numbersToAnalyze as $num) {
+        $analysis = analyzeNumber($num, $sequences, $lineCount);
+        if ($analysis !== null) {
+            $allAnalyses[] = $analysis;
+        }
+    }
+    
+    $report[] = "HISTOGRAMS FOR ALL NUMBERS";
+    $report[] = str_repeat("=", 78);
+    $report[] = "";
+    
+    foreach ($allAnalyses as $analysis) {
+        $report = array_merge($report, generateHistogramSection($analysis));
+    }
+    
+    // Overall summary
+    $report[] = str_repeat("=", 78);
+    $report[] = "OVERALL SUMMARY";
+    $report[] = str_repeat("=", 78);
+    $report[] = "";
+    
+    // Find numbers with highest chi-square (most biased)
+    usort($allAnalyses, function($a, $b) {
+        return $b['chiSquare'] <=> $a['chiSquare'];
+    });
+    
+    $report[] = "Top 10 numbers with highest chi-square (most biased):";
+    for ($i = 0; $i < min(10, count($allAnalyses)); $i++) {
+        $a = $allAnalyses[$i];
+        $report[] = sprintf("  %s: Chi-square = %.2f, High bias positions: %s, Low bias positions: %s",
+            $a['number'],
+            $a['chiSquare'],
+            empty($a['positionsWithHighBias']) ? "None" : implode(", ", $a['positionsWithHighBias']),
+            empty($a['positionsWithLowBias']) ? "None" : implode(", ", $a['positionsWithLowBias'])
+        );
+    }
+    
+} else {
+    // Analyze single number
+    $analysis = analyzeNumber($targetNumber, $sequences, $lineCount);
+    
+    if ($analysis === null) {
+        echo "Warning: Number '$targetNumber' never appears in the sequences.\n";
+        exit(1);
+    }
+    
+    $report[] = "HISTOGRAM";
+    $report[] = str_repeat("=", 78);
+    $report[] = "";
+    
+    $report = array_merge($report, generateHistogramSection($analysis));
+    
+    // Summary statistics
+    $report[] = "SUMMARY STATISTICS";
+    $report[] = str_repeat("-", 78);
+    $report[] = "";
+    $report[] = "Positions with HIGH bias (>20% above expected): " . 
+        (empty($analysis['positionsWithHighBias']) ? "None" : implode(", ", $analysis['positionsWithHighBias']));
+    $report[] = "Positions with LOW bias (>20% below expected): " . 
+        (empty($analysis['positionsWithLowBias']) ? "None" : implode(", ", $analysis['positionsWithLowBias']));
+    $report[] = "";
+    $report[] = "Chi-square statistic: " . number_format($analysis['chiSquare'], 2);
+    $report[] = "Degrees of freedom: 39";
+    $report[] = "";
+    $report[] = "(A high chi-square value suggests non-uniform distribution)";
+    $report[] = "";
+}
+
+$report[] = "=" . str_repeat("=", 78);
+$report[] = "Report generated: " . date('Y-m-d H:i:s');
+$report[] = "=" . str_repeat("=", 78);
+
+// Write report to file
+file_put_contents($outputFile, implode("\n", $report));
+
+echo "Analysis complete!\n";
+echo "Report saved to: $outputFile\n";
+
+if (!$analyzeAll) {
+    echo "\nSummary:\n";
+    echo "  - Total occurrences: " . $analysis['totalOccurrences'] . "\n";
+    echo "  - Expected per position: " . number_format($analysis['expectedFrequency'], 2) . "\n";
+    echo "  - Most frequent position(s): " . implode(", ", $analysis['maxPositions']) . 
+        " (" . $analysis['maxCount'] . " times)\n";
+    echo "  - Least frequent position(s): " . implode(", ", $analysis['minPositions']) . 
+        " (" . $analysis['minCount'] . " times)\n";
+    if (!empty($analysis['positionsWithHighBias'])) {
+        echo "  - High bias positions: " . implode(", ", $analysis['positionsWithHighBias']) . "\n";
+    }
+    if (!empty($analysis['positionsWithLowBias'])) {
+        echo "  - Low bias positions: " . implode(", ", $analysis['positionsWithLowBias']) . "\n";
+    }
+} else {
+    echo "\nAnalyzed all 40 numbers. See report for detailed histograms.\n";
+}
+

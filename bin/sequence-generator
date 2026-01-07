@@ -1,0 +1,60 @@
+#!/usr/bin/env php
+<?php
+
+require __DIR__ . '/../vendor/autoload.php';
+
+use DiceCipher\TableGenerator\UniqueSequenceGenerator;
+
+// Define CLI usage
+if ($argc < 3) {
+    echo "Usage: sequence-generator <number_of_sequences> <output_file>\n";
+    exit(1);
+}
+
+$numSequences = (int) $argv[1];
+$outputFile = $argv[2];
+
+if ($numSequences <= 0) {
+    echo "Error: The number of sequences must be a positive integer.\n";
+    exit(1);
+}
+
+// Ensure output directory exists
+$outputDir = __DIR__ . '/../output';
+if (!is_dir($outputDir)) {
+    mkdir($outputDir, 0755, true);
+}
+
+// Prepend output directory to the filename
+$pathInfo = pathinfo($outputFile);
+if ($pathInfo['dirname'] === '.' || empty($pathInfo['dirname'])) {
+    // Relative path - prepend output directory
+    $outputFile = $outputDir . '/' . basename($outputFile);
+} else {
+    // Absolute or relative path with directory - keep as is but ensure it's in output
+    $outputFile = $outputDir . '/' . basename($outputFile);
+}
+
+// Run the sequence generator
+$generator = new UniqueSequenceGenerator(40, $outputFile);
+$generator->generateAndStore($numSequences);
+
+echo "Successfully generated $numSequences sequences in $outputFile\n";
+
+// Automatically run bias analysis
+echo "\nRunning bias analysis for all numbers...\n";
+$analyzeScript = __DIR__ . '/analyze-bias';
+if (file_exists($analyzeScript)) {
+    $command = escapeshellarg(PHP_BINARY) . ' ' . escapeshellarg($analyzeScript) . ' ' . 
+               escapeshellarg($outputFile) . ' all';
+    passthru($command, $returnCode);
+    if ($returnCode === 0) {
+        $pathInfo = pathinfo($outputFile);
+        $reportFile = $pathInfo['dirname'] . '/' . $pathInfo['filename'] . '--bias-report-histogram.txt';
+        echo "\nBias analysis complete! Report saved to: $reportFile\n";
+    } else {
+        echo "\nWarning: Bias analysis completed with errors (exit code: $returnCode)\n";
+    }
+} else {
+    echo "\nWarning: Bias analysis script not found at: $analyzeScript\n";
+}

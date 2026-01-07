@@ -1,0 +1,160 @@
+#!/usr/bin/env php
+<?php
+
+/**
+ * Generate sequences until acceptable bias is achieved
+ * 
+ * Runs sequence generation up to 200 times, stopping early if:
+ * - Highest Chi-square < 47
+ * - AND no high bias positions
+ * - AND no low bias positions
+ */
+
+require __DIR__ . '/../vendor/autoload.php';
+
+const MAX_ITERATIONS = 200;
+const MAX_CHI_SQUARE = 47.0;
+const SEQUENCES_FILE = __DIR__ . '/../output/sequences.txt';
+const BIAS_REPORT_FILE = __DIR__ . '/../output/sequences--bias-report-histogram.txt';
+
+$sequenceGenerator = __DIR__ . '/sequence-generator';
+$analyzeBias = __DIR__ . '/analyze-bias';
+
+echo "===============================================================================\n";
+echo "SEQUENCE GENERATION WITH BIAS CHECK\n";
+echo "===============================================================================\n";
+echo "Target: Highest Chi-square < " . MAX_CHI_SQUARE . " with no high/low bias positions\n";
+echo "Maximum iterations: " . MAX_ITERATIONS . "\n";
+echo "===============================================================================\n\n";
+
+for ($iteration = 1; $iteration <= MAX_ITERATIONS; $iteration++) {
+    echo "Iteration $iteration/$MAX_ITERATIONS:\n";
+    echo "  Generating sequences...\n";
+    
+    // Generate sequences
+    $command = escapeshellarg(PHP_BINARY) . ' ' . escapeshellarg($sequenceGenerator) . 
+               ' 7776 sequences.txt 2>&1';
+    $output = [];
+    $returnCode = 0;
+    exec($command, $output, $returnCode);
+    
+    if ($returnCode !== 0) {
+        echo "  ERROR: Sequence generation failed!\n";
+        echo implode("\n", $output) . "\n";
+        exit(1);
+    }
+    
+    echo "  Analyzing bias...\n";
+    
+    // Run bias analysis
+    $command = escapeshellarg(PHP_BINARY) . ' ' . escapeshellarg($analyzeBias) . 
+               ' ' . escapeshellarg(SEQUENCES_FILE) . ' all 2>&1';
+    $output = [];
+    $returnCode = 0;
+    exec($command, $output, $returnCode);
+    
+    if ($returnCode !== 0) {
+        echo "  ERROR: Bias analysis failed!\n";
+        echo implode("\n", $output) . "\n";
+        exit(1);
+    }
+    
+    // Parse the bias report
+    if (!file_exists(BIAS_REPORT_FILE)) {
+        echo "  ERROR: Bias report file not found!\n";
+        exit(1);
+    }
+    
+    $reportContent = file_get_contents(BIAS_REPORT_FILE);
+    
+    // Extract highest chi-square value from the "Top 10" section
+    $highestChiSquare = null;
+    $topNumbersSection = '';
+    if (preg_match('/Top 10 numbers with highest chi-square.*?\n(.*?)(?=\n={78}|\Z)/s', $reportContent, $matches)) {
+        $topNumbersSection = $matches[1];
+        // Get the first (highest) chi-square value from the first line
+        $lines = explode("\n", $topNumbersSection);
+        if (!empty($lines[0]) && preg_match('/Chi-square = ([\d.]+)/', $lines[0], $chiMatch)) {
+            $highestChiSquare = (float)$chiMatch[1];
+        }
+    }
+    
+    // Check for high and low bias positions across all numbers
+    // Parse each number's section in the report
+    $hasHighBias = false;
+    $hasLowBias = false;
+    
+    // Check all individual number sections for HIGH/LOW bias positions
+    // Pattern: "HIGH bias positions: X, Y, Z" or "HIGH bias positions: None"
+    if (preg_match_all('/HIGH bias positions: (.+?)(?:\n|$)/', $reportContent, $highMatches)) {
+        foreach ($highMatches[1] as $highBias) {
+            $highBias = trim($highBias);
+            if ($highBias !== 'None' && !empty($highBias)) {
+                $hasHighBias = true;
+                break;
+            }
+        }
+    }
+    
+    if (preg_match_all('/LOW bias positions: (.+?)(?:\n|$)/', $reportContent, $lowMatches)) {
+        foreach ($lowMatches[1] as $lowBias) {
+            $lowBias = trim($lowBias);
+            if ($lowBias !== 'None' && !empty($lowBias)) {
+                $hasLowBias = true;
+                break;
+            }
+        }
+    }
+    
+    // Also check the top 10 summary section
+    if (!empty($topNumbersSection)) {
+        $lines = explode("\n", $topNumbersSection);
+        foreach ($lines as $line) {
+            if (preg_match('/High bias positions: (.+?)(?:,|$)/', $line, $highMatch)) {
+                if (trim($highMatch[1]) !== 'None') {
+                    $hasHighBias = true;
+                }
+            }
+            if (preg_match('/Low bias positions: (.+?)(?:,|$)/', $line, $lowMatch)) {
+                if (trim($lowMatch[1]) !== 'None') {
+                    $hasLowBias = true;
+                }
+            }
+        }
+    }
+    
+    echo "  Results:\n";
+    echo "    Highest Chi-square: " . ($highestChiSquare !== null ? number_format($highestChiSquare, 2) : "N/A") . "\n";
+    echo "    High bias positions: " . ($hasHighBias ? "YES" : "None") . "\n";
+    echo "    Low bias positions: " . ($hasLowBias ? "YES" : "None") . "\n";
+    
+    // Check if conditions are met
+    if ($highestChiSquare !== null && 
+        $highestChiSquare < MAX_CHI_SQUARE && 
+        !$hasHighBias && 
+        !$hasLowBias) {
+        echo "\n";
+        echo "===============================================================================\n";
+        echo "SUCCESS! Acceptable bias achieved!\n";
+        echo "===============================================================================\n";
+        echo "Iteration: $iteration\n";
+        echo "Highest Chi-square: " . number_format($highestChiSquare, 2) . " (target: < " . MAX_CHI_SQUARE . ")\n";
+        echo "High bias positions: None\n";
+        echo "Low bias positions: None\n";
+        echo "===============================================================================\n";
+        exit(0);
+    }
+    
+    echo "\n";
+}
+
+echo "===============================================================================\n";
+echo "Maximum iterations reached (" . MAX_ITERATIONS . ")\n";
+echo "===============================================================================\n";
+echo "Final results:\n";
+echo "  Highest Chi-square: " . ($highestChiSquare !== null ? number_format($highestChiSquare, 2) : "N/A") . "\n";
+echo "  High bias positions: " . ($hasHighBias ? "YES" : "None") . "\n";
+echo "  Low bias positions: " . ($hasLowBias ? "YES" : "None") . "\n";
+echo "===============================================================================\n";
+exit(1);
+

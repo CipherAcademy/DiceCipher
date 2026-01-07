@@ -1,0 +1,114 @@
+#!/usr/bin/env php
+<?php
+
+/**
+ * Convert origin-matrix.txt to PDF-ready format
+ * 
+ * Formats the origin matrix with:
+ * - Star-wrapped dice roll, base36, and word
+ * - Em dashes as separators
+ * - Number sequence broken in middle (after 20th comma) with backslash
+ * - Backslash separators between sequences
+ * - Empty lines between rows
+ */
+
+// Default to output/origin-matrix.txt if no file specified
+$inputFile = $argv[1] ?? __DIR__ . '/../output/origin-matrix.txt';
+
+// Define CLI usage (only show if help requested)
+if (isset($argv[1]) && ($argv[1] === '-h' || $argv[1] === '--help')) {
+    echo "Usage: make-origin-matrix-pdf-ready [origin_matrix_file]\n";
+    echo "  origin_matrix_file: (optional) Path to the origin-matrix.txt file\n";
+    echo "                     Default: output/origin-matrix.txt\n";
+    echo "\nThis will create output/origin-matrix-pdf-ready.txt\n";
+    exit(0);
+}
+
+if (!file_exists($inputFile)) {
+    echo "Error: Origin matrix file not found: $inputFile\n";
+    exit(1);
+}
+
+// Ensure output directory exists
+$outputDir = __DIR__ . '/../output';
+if (!is_dir($outputDir)) {
+    mkdir($outputDir, 0755, true);
+}
+
+$outputFile = $outputDir . '/origin-matrix-pdf-ready.txt';
+
+echo "Reading origin matrix from: $inputFile\n";
+echo "Generating PDF-ready format: $outputFile\n";
+
+// Open input file
+$inputHandle = fopen($inputFile, 'r');
+if ($inputHandle === false) {
+    echo "Error: Could not open input file.\n";
+    exit(1);
+}
+
+// Open output file
+$outputHandle = fopen($outputFile, 'w');
+if ($outputHandle === false) {
+    echo "Error: Could not create output file: $outputFile\n";
+    fclose($inputHandle);
+    exit(1);
+}
+
+$lineCount = 0;
+$emDash = '–'; // Unicode em dash
+
+while (($line = fgets($inputHandle)) !== false) {
+    $line = trim($line);
+    if (empty($line)) {
+        continue;
+    }
+    
+    // Parse the line: diceRoll - word - base36 - numberSequence - alphabetSequence
+    // Format: "1,1,1,1,1 - abacus - 000 - 39,04,05,... - R,Q,X,..."
+    $parts = explode(' - ', $line);
+    
+    if (count($parts) < 5) {
+        // Skip malformed lines
+        continue;
+    }
+    
+    $diceRoll = trim($parts[0]);
+    $word = trim($parts[1]);
+    $base36 = trim($parts[2]);
+    $numberSequence = trim($parts[3]);
+    $alphabetSequence = trim($parts[4]);
+    
+    // Escape # character in alphabet sequence
+    $alphabetSequence = str_replace('#', '\\#', $alphabetSequence);
+    
+    // Wrap dice roll, base36, and word in stars
+    $diceRollWrapped = "*$diceRoll*";
+    $base36Wrapped = "*$base36*";
+    $wordWrapped = "*$word*";
+    
+    // Break number sequence in the middle (after 20th comma)
+    $numberParts = explode(',', $numberSequence);
+    if (count($numberParts) > 20) {
+        $firstPart = implode(',', array_slice($numberParts, 0, 20));
+        $secondPart = implode(',', array_slice($numberParts, 20));
+        $numberSequenceFormatted = "$firstPart, \\ $secondPart";
+    } else {
+        $numberSequenceFormatted = $numberSequence;
+    }
+    
+    // Build the formatted line
+    // Format: *diceRoll* – *base36* – *word* – numberSequence \ alphabetSequence \
+    $formattedLine = "$diceRollWrapped $emDash $base36Wrapped $emDash $wordWrapped $emDash $numberSequenceFormatted \\ $alphabetSequence \\" . PHP_EOL;
+    
+    fwrite($outputHandle, $formattedLine);
+    fwrite($outputHandle, PHP_EOL); // Empty line after each row
+    
+    $lineCount++;
+}
+
+fclose($inputHandle);
+fclose($outputHandle);
+
+echo "Successfully generated $outputFile with $lineCount formatted lines.\n";
+

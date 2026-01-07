@@ -18,7 +18,7 @@
         "php": ">=7.4"
     },
     "bin": [
-        "bin/dicecipher"
+        "bin/sequence-generator"
     ],
     "scripts": {
         "test": "phpunit --bootstrap vendor/autoload.php tests"
