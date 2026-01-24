@@ -41,19 +41,38 @@
       box-shadow: 0 2px 8px rgba(0,0,0,0.1);
     }
     th, td {
-      border: 1px solid #ccc;
+      border: 1px solid #111;
       padding: 8px;
       text-align: center;
-      font-size: 11px;
+      font-size: 12px;
     }
     th {
-      background: #eee;
+      background: #ddd;
       font-weight: bold;
     }
     .row-label {
       background: #ddd;
       font-weight: bold;
       width: 60px;
+    }
+    /* Alternating row colors for data rows */
+    table tr:nth-child(odd) {
+      background-color: #ffffff;
+    }
+    table tr:nth-child(even) {
+      background-color: #eee;
+    }
+    /* Symbols row styling - light blue background (overrides alternating) */
+    table tr.symbols-row {
+      background-color: #ddd !important;
+    }
+    /* 0x row - same styling as symbols row (overrides alternating) */
+    table tr.zero-x-row {
+      background-color: #ddd !important;
+    }
+    /* Header row should stay white */
+    table tr:first-child {
+      background-color: transparent !important;
     }
     .error {
       color: red;
@@ -64,10 +83,73 @@
       background: #0066cc;
       color: white;
     }
+    /* Hide the first "Roll" column */
+    table th:first-child,
+    table td:first-child {
+      display: none;
+    }
+    /* Print styles - ensure background colors are printed */
+    @media print {
+      /* Hide form elements when printing */
+      label,
+      textarea,
+      input,
+      button,
+      h1,
+      p {
+        display: none !important;
+      }
+      /* Show only the matrix container */
+      #matrixContainer {
+        display: block !important;
+      }
+      /* Remove margins and padding for print */
+      body {
+        margin: 0;
+        padding: 10px;
+      }
+      /* Force browsers to print background colors */
+      * {
+        -webkit-print-color-adjust: exact !important;
+        print-color-adjust: exact !important;
+        color-adjust: exact !important;
+      }
+      /* Ensure table cells maintain their backgrounds */
+      th, td {
+        -webkit-print-color-adjust: exact !important;
+        print-color-adjust: exact !important;
+        color-adjust: exact !important;
+      }
+      /* Ensure row backgrounds print */
+      table tr {
+        -webkit-print-color-adjust: exact !important;
+        print-color-adjust: exact !important;
+        color-adjust: exact !important;
+      }
+      /* Ensure row-label backgrounds print */
+      .row-label {
+        -webkit-print-color-adjust: exact !important;
+        print-color-adjust: exact !important;
+        color-adjust: exact !important;
+      }
+      /* Ensure master header prints with background */
+      .master-header {
+        -webkit-print-color-adjust: exact !important;
+        print-color-adjust: exact !important;
+        color-adjust: exact !important;
+      }
+      /* Ensure symbols and 0x rows print with background */
+      .symbols-row,
+      .zero-x-row {
+        -webkit-print-color-adjust: exact !important;
+        print-color-adjust: exact !important;
+        color-adjust: exact !important;
+      }
+    }
   </style>
 </head>
 <body>
-  <h1>DiceCipher Matrix Builder</h1>
+  <h1>DiceCipher - Cipher Matrix Builder</h1>
   <p>Enter dice rolls (5 digits each, space or comma separated) to build your Cipher Matrix.</p>
 
   <label for="diceRolls">Dice Rolls (required – e.g., 11111 23232 45654)</label>
@@ -76,7 +158,7 @@
   <label for="multiThrows">Multiplication Throws (optional – adds 0x, 1x, 2x... rows)</label>
   <textarea id="multiThrows" rows="3" placeholder="33333 55555"></textarea>
 
-  <button onclick="buildMatrix()">Build Matrix</button>
+  <button onclick="buildMatrix()">Build The Cipher Matrix</button>
 
   <div id="error" class="error"></div>
 
@@ -54625,6 +54707,7 @@
 
       // Alphabet symbols
       const symbolsRow = document.createElement('tr');
+      symbolsRow.className = 'symbols-row';
       const emptySymbolTh = document.createElement('th');
       emptySymbolTh.textContent = 'Roll';
       emptySymbolTh.className = 'row-label';
@@ -54632,7 +54715,7 @@
 
       const rowLabel = document.createElement('th');
       rowLabel.className = 'row-label';
-      rowLabel.textContent = 'Symbols';
+      rowLabel.textContent = '';
       symbolsRow.appendChild(rowLabel);
 
       masterAlphabet.forEach(sym => {
@@ -54681,6 +54764,7 @@
       if (multiRolls.length > 0) {
         // 0x row = fixed Master Alphabet
         const zeroX = document.createElement('tr');
+        zeroX.className = 'zero-x-row';
         const zeroRollTd = document.createElement('td');
         zeroRollTd.className = 'row-label';
         zeroRollTd.textContent = '—'; // Dash for 0x row
